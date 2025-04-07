@@ -10,12 +10,16 @@ pygame.init()
 # --- Constantes ---
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-# Définir la taille souhaitée pour l'affichage du joueur
 PLAYER_DISPLAY_WIDTH = 40
-PLAYER_DISPLAY_HEIGHT = 40 # Ajustez ces valeurs selon vos préférences
-PLAYER_TARGET_SIZE = (PLAYER_DISPLAY_WIDTH, PLAYER_DISPLAY_HEIGHT) # Tuple pour scale
+PLAYER_DISPLAY_HEIGHT = 40
+PLAYER_TARGET_SIZE = (PLAYER_DISPLAY_WIDTH, PLAYER_DISPLAY_HEIGHT)
 
-ZOMBIE_SIZE = 25
+# ### MODIFIÉ ### : Définir aussi une taille cible pour les zombies
+ZOMBIE_WIDTH = 30 # Ajustez si nécessaire
+ZOMBIE_HEIGHT = 30 # Ajustez si nécessaire
+ZOMBIE_TARGET_SIZE = (ZOMBIE_WIDTH, ZOMBIE_HEIGHT) # Tuple pour scale
+# ZOMBIE_SIZE = 25 # L'ancienne constante n'est plus directement utilisée pour le carré
+
 PLAYER_SPEED = 5
 ZOMBIE_MIN_SPEED = 1
 ZOMBIE_MAX_SPEED = 3
@@ -23,8 +27,8 @@ ZOMBIE_MAX_SPEED = 3
 # Couleurs
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0) # Gardé comme couleur de secours
+RED = (255, 0, 0) # Gardé comme couleur de secours
+GREEN = (0, 255, 0)
 
 # --- Configuration de l'écran ---
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -37,154 +41,203 @@ clock = pygame.time.Clock()
 def load_image(filename):
     filepath = os.path.join(os.path.dirname(__file__), filename)
     try:
-        image = pygame.image.load(filepath).convert_alpha()
+        # Tenter de charger l'image
+        image = pygame.image.load(filepath)
+        # Convertir avec convert_alpha() pour gérer la transparence correctement
+        image = image.convert_alpha()
         return image
     except pygame.error as e:
         print(f"Impossible de charger l'image '{filename}': {e}")
-        fallback_surface = pygame.Surface([30, 30]) # Taille par défaut si erreur
-        fallback_surface.fill((255, 0, 255))
+        # Créer une surface de secours si l'image est introuvable
+        # Utiliser les nouvelles constantes ZOMBIE_WIDTH/HEIGHT pour la taille par défaut
+        fallback_surface = pygame.Surface([ZOMBIE_WIDTH, ZOMBIE_HEIGHT])
+        fallback_surface.fill((255, 0, 255)) # Magenta pour indiquer l'erreur
         return fallback_surface
 
 # --- Classe pour le Joueur (inchangée) ---
 class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-
-        # Charger les images originales
         original_images = {
             'nord': load_image('player_nord.png'),
             'sud': load_image('player_sud.png'),
             'est': load_image('player_est.png'),
             'west': load_image('player_west.png')
         }
-
-        # Redimensionner les images chargées à la taille cible
         self.images = {}
         for direction, img in original_images.items():
-            # Utilise pygame.transform.scale pour redimensionner
             self.images[direction] = pygame.transform.scale(img, PLAYER_TARGET_SIZE)
 
-        # --- Le reste de __init__ est identique à avant ---
-        # Vérifier si toutes les images ont été chargées (optionnel mais bon pour le debug)
-        # Note: On vérifie toujours original_images au cas où le load échoue AVANT le scale
-        # Simplifié pour être plus proche de l'original : on suppose que ça charge
-        # if not all(original_images.values()):
-        #      raise ValueError("Une ou plusieurs images du joueur n'ont pas pu être chargées.")
-
-        # Image initiale et direction
         self.direction = 'sud'
-        self.image = self.images[self.direction] # Utilise l'image redimensionnée
-        self.rect = self.image.get_rect() # Obtient le rect de l'image redimensionnée
+        # Gérer le cas où l'image 'sud' n'a pas pu être chargée
+        if self.direction in self.images:
+             self.image = self.images[self.direction]
+        else:
+            # Solution de secours très simple: prendre la première image dispo ou planter
+            try:
+                self.image = next(iter(self.images.values()))
+            except StopIteration:
+                 # Si AUCUNE image n'a été chargée, créer un carré blanc
+                 print("ERREUR: Aucune image joueur chargée. Utilisation d'un carré blanc.")
+                 self.image = pygame.Surface(PLAYER_TARGET_SIZE)
+                 self.image.fill(WHITE)
 
-        # Position de départ au centre (utilisera la largeur/hauteur du rect redimensionné)
-        self.rect.x = SCREEN_WIDTH // 2 - self.rect.width // 2
-        self.rect.y = SCREEN_HEIGHT // 2 - self.rect.height // 2
+        self.rect = self.image.get_rect()
+        self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2) # Positionner par le centre
         self.speed = PLAYER_SPEED
 
-    # --- La méthode update reste exactement la même qu'avant ---
     def update(self, keys):
         move_x = 0
         move_y = 0
-        new_direction = self.direction # Garde l'ancienne direction par défaut
+        new_direction = self.direction
 
-        # Détection des touches pour le mouvement
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            move_x = -self.speed
-            # new_direction = 'west' # On détermine la direction après
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            move_x = self.speed
-            # new_direction = 'est'
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            move_y = -self.speed
-            # new_direction = 'nord'
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            move_y = self.speed
-            # new_direction = 'sud'
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]: move_x = -self.speed
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]: move_x = self.speed
+        if keys[pygame.K_UP] or keys[pygame.K_w]: move_y = -self.speed
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]: move_y = self.speed
 
-        # Détermination de la direction (priorité Y puis X)
-        # Cette logique peut être simplifiée si désiré, mais gardée pour cohérence avec l'original
-        if move_y != 0:
-             if move_y < 0: new_direction = 'nord'
-             else: new_direction = 'sud'
-        elif move_x != 0: # Ne change la direction basée sur X que si Y est nul
-             if move_x < 0: new_direction = 'west'
-             else: new_direction = 'est'
+        # Déterminer la direction basée sur le mouvement
+        if move_y < 0: new_direction = 'nord'
+        elif move_y > 0: new_direction = 'sud'
+        elif move_x < 0: new_direction = 'west'
+        elif move_x > 0: new_direction = 'est'
 
-        # Mise à jour de l'image si la direction change et qu'on bouge
         is_moving = move_x != 0 or move_y != 0
         if is_moving and new_direction != self.direction:
-            self.direction = new_direction
-            self.image = self.images[self.direction] # Sélectionne l'image redimensionnée
-            # Recalculer le rect en gardant le centre pour éviter les sauts
-            center = self.rect.center
-            self.rect = self.image.get_rect(center=center)
+             if new_direction in self.images: # Vérifier si l'image existe
+                self.direction = new_direction
+                self.image = self.images[self.direction]
+                center = self.rect.center # Sauvegarder le centre
+                self.rect = self.image.get_rect(center=center) # Recréer le rect centré
 
-        # Appliquer le mouvement
         self.rect.x += move_x
         self.rect.y += move_y
 
-        # Garder le joueur dans les limites de l'écran
-        if self.rect.left < 0:
-            self.rect.left = 0
-        if self.rect.right > SCREEN_WIDTH:
-            self.rect.right = SCREEN_WIDTH
-        if self.rect.top < 0:
-            self.rect.top = 0
-        if self.rect.bottom > SCREEN_HEIGHT:
-            self.rect.bottom = SCREEN_HEIGHT
+        # Contraintes écran
+        self.rect.left = max(0, self.rect.left)
+        self.rect.right = min(SCREEN_WIDTH, self.rect.right)
+        self.rect.top = max(0, self.rect.top)
+        self.rect.bottom = min(SCREEN_HEIGHT, self.rect.bottom)
 
-# --- Classe pour les Zombies (inchangée) ---
+
+# --- Classe pour les Zombies (MODIFIÉE) ---
 class Zombie(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        # Optionnel: Charger une image de zombie
-        # self.original_image = load_image('zombie.png')
-        # self.image = pygame.transform.scale(self.original_image, (ZOMBIE_SIZE, ZOMBIE_SIZE))
-        # self.rect = self.image.get_rect()
-        # Si pas d'image de zombie, garder le carré rouge:
-        self.image = pygame.Surface([ZOMBIE_SIZE, ZOMBIE_SIZE])
-        self.image.fill(RED)
-        self.rect = self.image.get_rect()
 
+        # ### NOUVEAU: Charger les images originales du zombie ###
+        original_images = {
+            'nord': load_image('zombie_nord.png'),
+            'sud': load_image('zombie_sud.png'),
+            'est': load_image('zombie_est.png'),
+            'ouest': load_image('zombie_ouest.png') # 'ouest' au lieu de 'west' pour correspondre au joueur
+        }
+
+        # ### NOUVEAU: Redimensionner les images chargées à la taille cible ###
+        self.images = {}
+        has_loaded_any = False
+        for direction, img in original_images.items():
+            # Vérifier si l'image a été chargée correctement (n'est pas la surface de secours)
+            # C'est une vérification simple, on pourrait être plus précis
+            if img and img.get_width() > 0 and img.get_height() > 0:
+                 # Utilise pygame.transform.scale pour redimensionner
+                try:
+                    self.images[direction] = pygame.transform.scale(img, ZOMBIE_TARGET_SIZE)
+                    has_loaded_any = True
+                except pygame.error as scale_error:
+                    print(f"Erreur de redimensionnement pour zombie_{direction}.png: {scale_error}")
+                    # Ne pas ajouter d'image si le redimensionnement échoue
+            # else: L'image n'a pas été chargée, ne rien faire
+
+        # ### MODIFIÉ: Déterminer la vitesse et la direction initiale ###
         spawn_side = random.randint(0, 3)
         speed = random.uniform(ZOMBIE_MIN_SPEED, ZOMBIE_MAX_SPEED)
-        # Calcul de la direction basé sur la vitesse (simple)
-        # Note: L'original utilisait dx/dy directement, gardons cette approche
         dx = 0
         dy = 0
+        start_x = 0
+        start_y = 0
+
+        # Définir dx, dy et position de départ
+        temp_rect_width = ZOMBIE_TARGET_SIZE[0] # Utiliser la taille cible pour le spawn
+        temp_rect_height = ZOMBIE_TARGET_SIZE[1]
 
         if spawn_side == 0: # Haut
-            self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)
-            self.rect.y = -self.rect.height
-            dx = random.uniform(-0.5, 0.5) * speed # Direction légèrement aléatoire
-            dy = speed # Va principalement vers le bas
-        elif spawn_side == 1: # Bas
-            self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)
-            self.rect.y = SCREEN_HEIGHT
+            start_x = random.randint(0, SCREEN_WIDTH - temp_rect_width)
+            start_y = -temp_rect_height
             dx = random.uniform(-0.5, 0.5) * speed
-            dy = -speed # Va principalement vers le haut
+            dy = speed # Principalement vers le bas
+        elif spawn_side == 1: # Bas
+            start_x = random.randint(0, SCREEN_WIDTH - temp_rect_width)
+            start_y = SCREEN_HEIGHT
+            dx = random.uniform(-0.5, 0.5) * speed
+            dy = -speed # Principalement vers le haut
         elif spawn_side == 2: # Gauche
-            self.rect.x = -self.rect.width
-            self.rect.y = random.randint(0, SCREEN_HEIGHT - self.rect.height)
-            dx = speed # Va principalement vers la droite
+            start_x = -temp_rect_width
+            start_y = random.randint(0, SCREEN_HEIGHT - temp_rect_height)
+            dx = speed # Principalement vers la droite
             dy = random.uniform(-0.5, 0.5) * speed
         else: # Droite
-            self.rect.x = SCREEN_WIDTH
-            self.rect.y = random.randint(0, SCREEN_HEIGHT - self.rect.height)
-            dx = -speed # Va principalement vers la gauche
+            start_x = SCREEN_WIDTH
+            start_y = random.randint(0, SCREEN_HEIGHT - temp_rect_height)
+            dx = -speed # Principalement vers la gauche
             dy = random.uniform(-0.5, 0.5) * speed
 
-        # Stocker dx et dy pour l'update
         self.dx = dx
         self.dy = dy
 
+        # ### NOUVEAU: Déterminer la direction visuelle basée sur dx/dy ###
+        if abs(self.dy) > abs(self.dx): # Mouvement vertical dominant
+            if self.dy > 0:
+                self.direction = 'sud'
+            else:
+                self.direction = 'nord'
+        else: # Mouvement horizontal dominant (ou égal)
+            if self.dx > 0:
+                self.direction = 'est'
+            else:
+                # Inclut le cas dx == 0 et dy == 0 (peu probable mais sûr)
+                self.direction = 'ouest' # 'ouest' comme pour le joueur
+
+        # ### MODIFIÉ: Définir l'image et le rect initiaux ###
+        if has_loaded_any and self.direction in self.images:
+            self.image = self.images[self.direction]
+        else:
+            # Fallback: si l'image spécifique manque ou aucune image chargée, utiliser un carré rouge
+            if not has_loaded_any:
+                print("Aucune image de zombie chargée. Utilisation d'un carré rouge.")
+            else:
+                 print(f"Image manquante pour zombie direction {self.direction}. Utilisation d'un carré rouge.")
+
+            self.image = pygame.Surface(ZOMBIE_TARGET_SIZE)
+            self.image.fill(RED)
+            # Si on utilise le fallback, on doit quand même définir une direction "logique"
+            # pour éviter les erreurs si on essaie d'y accéder plus tard.
+            if not hasattr(self, 'direction'):
+                 self.direction = 'sud' # Défaut arbitraire
+
+
+        self.rect = self.image.get_rect()
+        # Positionner le zombie à sa position de départ
+        self.rect.x = start_x
+        self.rect.y = start_y
+
+
     def update(self):
+        # Le mouvement est basé sur dx/dy définis à l'initialisation
         self.rect.x += self.dx
         self.rect.y += self.dy
+
+        # Pas besoin de changer self.image ici car dx/dy ne changent pas pour ce zombie
+        # Si les zombies devaient changer de direction (ex: suivre le joueur),
+        # il faudrait ajouter ici une logique similaire à celle de __init__ pour
+        # recalculer la direction et mettre à jour self.image.
+
         # Condition de suppression si trop loin (inchangée)
-        if (self.rect.right < -50 or self.rect.left > SCREEN_WIDTH + 50 or
-            self.rect.bottom < -50 or self.rect.top > SCREEN_HEIGHT + 50):
+        margin = 50 # Une petite marge
+        if (self.rect.right < -margin or self.rect.left > SCREEN_WIDTH + margin or
+            self.rect.bottom < -margin or self.rect.top > SCREEN_HEIGHT + margin):
             self.kill()
+
 
 # --- Fonction pour afficher le texte (inchangée) ---
 def draw_text(surface, text, size, x, y, color):
@@ -196,7 +249,7 @@ def draw_text(surface, text, size, x, y, color):
 
 # --- Fonction pour l'écran de Game Over (inchangée) ---
 def show_game_over_screen(screen, score):
-    screen.fill(BLACK) # Fond noir simple comme dans l'original
+    screen.fill(BLACK)
     draw_text(screen, "GAME OVER !", 64, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 4, RED)
     draw_text(screen, f"Temps survécu : {score:.2f} secondes", 22, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, WHITE)
     draw_text(screen, "Appuyez sur 'R' pour Rejouer ou 'Q' pour Quitter", 18, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4, WHITE)
@@ -213,21 +266,19 @@ def show_game_over_screen(screen, score):
                     pygame.quit()
                     sys.exit()
                 if event.key == pygame.K_r:
-                    waiting = False # Sort de la boucle pour relancer
+                    waiting = False
 
-# ### NOUVEAU ### --- Chargement de l'image de fond ---
+# --- Chargement de l'image de fond (inchangé) ---
 try:
     background_img_original = load_image('background.png')
-    # Redimensionner pour s'assurer qu'elle correspond à la taille de l'écran
     background_img = pygame.transform.scale(background_img_original, (SCREEN_WIDTH, SCREEN_HEIGHT))
 except Exception as e:
     print(f"Impossible de charger ou redimensionner background.png: {e}")
     print("Utilisation d'un fond vert uni à la place.")
-    # Créer une surface verte de secours si l'image manque ou erreur
     background_img = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     background_img.fill(GREEN)
 
-# --- Boucle Principale du Jeu (Seule modification : screen.fill -> screen.blit) ---
+# --- Boucle Principale du Jeu (inchangée) ---
 def game_loop():
     all_sprites = pygame.sprite.Group()
     zombies = pygame.sprite.Group()
@@ -235,8 +286,7 @@ def game_loop():
     all_sprites.add(player)
     running = True
     game_over = False
-    # score = 0 # Le score est calculé dynamiquement plus bas
-    final_score = 0 # Besoin d'une variable pour le score final
+    final_score = 0
     start_time = pygame.time.get_ticks()
     zombie_spawn_timer = 0
     zombie_spawn_delay = 1500 # ms
@@ -246,72 +296,53 @@ def game_loop():
     difficulty_increase_interval = 5000 # ms
 
     while running:
-        delta_time = clock.tick(60) # Obtenir le temps écoulé (en ms) et limiter FPS
+        delta_time = clock.tick(60)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-                # Ne pas mettre game_over ici, on quitte directement
-                # Si on ferme la fenêtre, le jeu s'arrête
 
         if not game_over:
-            # Mises à jour
             keys = pygame.key.get_pressed()
             player.update(keys)
-            zombies.update()
+            zombies.update() # L'update du zombie gère maintenant son image initiale
 
-            # Difficulté croissante (inchangé)
             difficulty_increase_timer += delta_time
             if difficulty_increase_timer > difficulty_increase_interval:
                 difficulty_increase_timer = 0
                 zombie_spawn_delay = max(min_spawn_delay, zombie_spawn_delay - spawn_decrease_rate)
 
-            # Apparition des zombies (inchangé)
             zombie_spawn_timer += delta_time
             if zombie_spawn_timer > zombie_spawn_delay:
                 zombie_spawn_timer = 0
-                new_zombie = Zombie()
+                new_zombie = Zombie() # Crée un zombie avec la bonne image initiale
                 all_sprites.add(new_zombie)
                 zombies.add(new_zombie)
 
-            # Vérification des collisions (inchangé)
             hits = pygame.sprite.spritecollide(player, zombies, False)
             if hits:
                 game_over = True
-                final_score = (pygame.time.get_ticks() - start_time) / 1000.0 # Calculer score final ici
+                final_score = (pygame.time.get_ticks() - start_time) / 1000.0
 
-            # Calcul du score affiché (temps actuel)
-            # On le calcule ici pour l'afficher en continu
             current_score = (pygame.time.get_ticks() - start_time) / 1000.0
 
             # --- Dessin ---
-            # ### MODIFIÉ ### : Remplacer screen.fill par screen.blit
-            # screen.fill(GREEN) # Ancienne ligne
-            screen.blit(background_img, (0, 0)) # Nouvelle ligne: dessine l'image de fond
-
-            # Dessiner les sprites par dessus le fond
+            screen.blit(background_img, (0, 0))
             all_sprites.draw(screen)
-            # Dessiner le score par dessus tout
             draw_text(screen, f"Temps: {current_score:.2f}", 24, SCREEN_WIDTH / 2, 10, BLACK)
 
-        else: # Si game_over est True
-             if running: # Vérifier si on n'a pas déjà décidé de quitter
+        else:
+             if running:
                  show_game_over_screen(screen, final_score)
-                 # Après show_game_over_screen, si on appuie sur 'R', on revient ici.
-                 # Pour relancer, il faut réinitialiser ou appeler à nouveau game_loop.
-                 # L'appel récursif est le plus simple ici, comme dans l'original.
-                 game_loop() # Relance une nouvelle partie
-                 return # Important pour sortir proprement de l'instance actuelle de game_loop
+                 game_loop()
+                 return
 
-        # Mettre à jour l'affichage
         pygame.display.flip()
 
-    # Fin de la boucle principale (si running devient False)
     pygame.quit()
     sys.exit()
 
 # --- Lancer le jeu ---
 if __name__ == '__main__':
-    # Ajout d'un try/except global simple pour attraper les erreurs imprévues
     try:
         game_loop()
     except Exception as e:
