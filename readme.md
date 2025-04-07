@@ -9,6 +9,9 @@ Quand tu fais git checkout <id_commit> # tu passes en mode détaché : HEAD poin
 git checkout -b test-retour <id_du_commit> #créer une branche temporaire depuis l’ancien commit (safe)
 
 
-git reset --hard <id_du_commit>  #reset hard (⚠️dangereux) 
+
+git add game.py #préparer un fichier à être commit. Mettre en "staged", c’est-à-dire qu’il est prêt à être enregistré dans le prochain commit.
+git revert <id_commit> # commit qui ajoute un bug. Tu veux revenir en arrière sans écraser l’historique.
+git reset --hard <id_du_commit>  #reset hard (⚠️dangereux) --soft aussi
 
 ```
